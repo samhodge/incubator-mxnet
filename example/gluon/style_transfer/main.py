@@ -78,8 +78,9 @@ def train(args):
 
             xc = utils.subtract_imagenet_mean_preprocess_batch(x.copy())
             f_xc_c = vgg(xc)[1]
+
+            style_model.setTarget(style_image)
             with autograd.record():
-                style_model.setTarget(style_image)
                 y = style_model(x)
 
                 y = utils.subtract_imagenet_mean_batch(y)
