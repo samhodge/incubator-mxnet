@@ -56,11 +56,11 @@ class ReflectancePadding(HybridBlock):
         super(ReflectancePadding, self).__init__(**kwargs)
         self.pad_width = pad_width
         
-    def forward(self, x):
+    def hybrid_forward(self, F, x, pad_width):
         return F.pad(x, mode='reflect', pad_width=self.pad_width)
 
     
-class Bottleneck(Block):
+class Bottleneck(HybridBlock):
     """ Pre-activation residual block
     Identity Mapping in Deep Residual Networks
     ref https://arxiv.org/abs/1603.05027
@@ -73,7 +73,7 @@ class Bottleneck(Block):
             self.residual_layer = nn.Conv2D(in_channels=inplanes, 
                                             channels=planes * self.expansion,
                                             kernel_size=1, strides=(stride, stride))
-        self.conv_block = nn.Sequential()
+        self.conv_block = nn.HybridSequential()
         with self.conv_block.name_scope():
             self.conv_block.add(norm_layer(in_channels=inplanes))
             self.conv_block.add(nn.Activation('relu'))
@@ -89,7 +89,7 @@ class Bottleneck(Block):
                                  channels=planes * self.expansion, 
                                  kernel_size=1))
         
-    def forward(self, x):
+    def hybrid_forward(self, F, x,downsample):
         if self.downsample is not None:
             residual = self.residual_layer(x)
         else:
@@ -97,7 +97,7 @@ class Bottleneck(Block):
         return residual + self.conv_block(x)
 
 
-class UpBottleneck(Block):
+class UpBottleneck(HybridBlock):
     """ Up-sample residual block (from MSG-Net paper)
     Enables passing identity all the way through the generator
     ref https://arxiv.org/abs/1703.06953
@@ -107,7 +107,7 @@ class UpBottleneck(Block):
         self.expansion = 4
         self.residual_layer = UpsampleConvLayer(inplanes, planes * self.expansion,
                                                       kernel_size=1, stride=1, upsample=stride)
-        self.conv_block = nn.Sequential()
+        self.conv_block = nn.HybridSequential()
         with self.conv_block.name_scope():
             self.conv_block.add(norm_layer(in_channels=inplanes))
             self.conv_block.add(nn.Activation('relu'))
@@ -122,11 +122,11 @@ class UpBottleneck(Block):
                                 channels=planes * self.expansion, 
                                 kernel_size=1))
 
-    def forward(self, x):
+    def hybrid_forward(self, F, x, residual_layer, conv_block):
         return  self.residual_layer(x) + self.conv_block(x)
 
 
-class ConvLayer(Block):
+class ConvLayer(HybridBlock):
     def __init__(self, in_channels, out_channels, kernel_size, stride):
         super(ConvLayer, self).__init__()
         padding = int(np.floor(kernel_size / 2))
@@ -135,13 +135,13 @@ class ConvLayer(Block):
                                 kernel_size=kernel_size, strides=(stride,stride),
                                 padding=0)
 
-    def forward(self, x):
+    def hybrid_forward(self, F, x, pad,conv2d):
         x = self.pad(x)
         out = self.conv2d(x)
         return out
 
 
-class UpsampleConvLayer(Block):
+class UpsampleConvLayer(HybridBlock):
     """UpsampleConvLayer
     Upsamples the input and then does a convolution. This method gives better results
     compared to ConvTranspose2d.
@@ -162,7 +162,7 @@ class UpsampleConvLayer(Block):
                                 kernel_size=kernel_size, strides=(stride,stride),
                                 padding=self.reflection_padding)
 
-    def forward(self, x):
+    def hybrid_forward(self, F, x, upsample):
         if self.upsample:
             x = F.UpSampling(x, scale=self.upsample, sample_type='nearest')
         """
@@ -181,8 +181,8 @@ def gram_matrix(y):
     return gram
 
 
-class GramMatrix(Block):
-    def forward(self, x):
+class GramMatrix(HybridBlock):
+    def hybrid_forward(self, F, x):
         gram = gram_matrix(x)
         return gram
 
@@ -198,9 +198,9 @@ class Net(Block):
         expansion = 4
 
         with self.name_scope():
-            self.model1 = nn.Sequential()
+            self.model1 = nn.HybridSequential()
             self.ins = Inspiration(ngf*expansion)
-            self.model = nn.Sequential()
+            self.model = nn.HybridSequential()
 
             self.model1.add(ConvLayer(input_nc, 64, kernel_size=7, stride=1))
             self.model1.add(norm_layer(in_channels=64))
@@ -227,7 +227,7 @@ class Net(Block):
         G = self.gram(F)
         self.ins.setTarget(G)
 
-    def forward(self, input):
+    def hybrid_forward(self, input):
         return self.model(input)
 
 
@@ -240,20 +240,32 @@ class Inspiration(HybridBlock):
         super(Inspiration, self).__init__()
         # B is equal to 1 or input mini_batch
         self.C = C
-        self.weight = self.params.get('weight', shape=(1,C,C),
+        self.B = B
+        """
+        self.weight = self.params.get('weight', shape=(1,self.C,self.C),
                                       init=mx.initializer.Uniform(),
                                       allow_deferred_init=True)
-        self.gram = self.params.get('gram', shape=(B,C,C),
+        self.gram = self.params.get('gram', shape=(self.B,self.C,self.C),
                                     init=mx.initializer.Uniform(),
                                     allow_deferred_init=True,
                                     lr_mult=0)
-
+        """
     def setTarget(self, target):
-        self.gram.set_data(target)
-
-    def forward(self, X):
+        #self.gram.set_data(target)
+        self.params.get('gram', shape=(self.B,self.C,self.C),
+                                    init=mx.initializer.Uniform(),
+                                    allow_deferred_init=True,
+                                    lr_mult=0).set_data(target)
+    def hybrid_forward(self, F, X, C, B):
         # input X is a 3D feature map
-        self.P = F.batch_dot(F.broadcast_to(self.weight.data(), shape=(self.gram.shape)), self.gram.data())
+        weight = self.params.get('weight', shape=(1,self.C,self.C),
+                                      init=mx.initializer.Uniform(),
+                                      allow_deferred_init=True)
+        gram = self.params.get('gram', shape=(self.B,self.C,self.C),
+                                    init=mx.initializer.Uniform(),
+                                    allow_deferred_init=True,
+                                    lr_mult=0)
+        self.P = F.batch_dot(F.broadcast_to(weight.data(), shape=(gram.shape)), gram.data())
         return F.batch_dot(F.SwapAxis(self.P,1,2).broadcast_to((X.shape[0], self.C, self.C)), X.reshape((0,0,X.shape[2]*X.shape[3]))).reshape(X.shape)
 
     def __repr__(self):
