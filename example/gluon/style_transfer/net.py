@@ -30,15 +30,15 @@ class InstanceNorm(HybridBlock):
         self._kwargs = {'eps': epsilon}
         if in_channels != 0:
             self.in_channels = in_channels
-        self.gamma = self.params.get('gamma', grad_req='write' if scale else 'null',
+        self.gamma = self.collect_params().get('gamma', grad_req='write' if scale else 'null',
                                      shape=(in_channels,), init=gamma_initializer,
                                      allow_deferred_init=True)
-        self.beta = self.params.get('beta', grad_req='write' if center else 'null',
+        self.beta = self.collect_params().get('beta', grad_req='write' if center else 'null',
                                     shape=(in_channels,), init=beta_initializer,
                                     allow_deferred_init=True)
 
-    def hybrid_forward(self, F, x, gamma, beta):
-        return F.InstanceNorm(x, gamma, beta,
+    def hybrid_forward(self, F, x):
+        return F.InstanceNorm(x, self.gamma, self.beta,
                            name='fwd', **self._kwargs)
 
     def __repr__(self):
@@ -56,7 +56,7 @@ class ReflectancePadding(HybridBlock):
         super(ReflectancePadding, self).__init__(**kwargs)
         self.pad_width = pad_width
         
-    def hybrid_forward(self, F, x, pad_width):
+    def hybrid_forward(self, F, x):
         return F.pad(x, mode='reflect', pad_width=self.pad_width)
 
     
@@ -89,7 +89,7 @@ class Bottleneck(HybridBlock):
                                  channels=planes * self.expansion, 
                                  kernel_size=1))
         
-    def hybrid_forward(self, F, x,downsample):
+    def hybrid_forward(self, F, x,downsample, residual, conv_block):
         if self.downsample is not None:
             residual = self.residual_layer(x)
         else:
@@ -127,15 +127,25 @@ class UpBottleneck(HybridBlock):
 
 
 class ConvLayer(HybridBlock):
+    """
+    OK here you
+    """
     def __init__(self, in_channels, out_channels, kernel_size, stride):
         super(ConvLayer, self).__init__()
-        padding = int(np.floor(kernel_size / 2))
-        self.pad = ReflectancePadding(pad_width=(0,0,0,0,padding,padding,padding,padding))
-        self.conv2d = nn.Conv2D(in_channels=in_channels, channels=out_channels, 
-                                kernel_size=kernel_size, strides=(stride,stride),
-                                padding=0)
+        self.padding = int(np.floor(kernel_size / 2))
+        self.kernel_size=kernel_size
+        self.stride=stride
+        self.in_channels=in_channels
+        self.out_channels=out_channels
+        self.conv2d = nn.Conv2D(in_channels=self.in_channels, channels=self.out_channels, 
+                                kernel_size=self.kernel_size, strides=(self.stride,self.stride),
+                                padding=0) 
+        self.pad = ReflectancePadding(pad_width=(0,0,0,0,self.padding,self.padding,self.padding,self.padding))
 
-    def hybrid_forward(self, F, x, pad,conv2d):
+    def hybrid_forward(self,F, x):
+
+   
+        #conv2d.collect_params().get("bias")    
         x = self.pad(x)
         out = self.conv2d(x)
         return out
@@ -162,7 +172,7 @@ class UpsampleConvLayer(HybridBlock):
                                 kernel_size=kernel_size, strides=(stride,stride),
                                 padding=self.reflection_padding)
 
-    def hybrid_forward(self, F, x, upsample):
+    def hybrid_forward(self, F, x, upsample, conv2d):
         if self.upsample:
             x = F.UpSampling(x, scale=self.upsample, sample_type='nearest')
         """
@@ -186,7 +196,7 @@ class GramMatrix(HybridBlock):
         gram = gram_matrix(x)
         return gram
 
-class Net(Block):
+class Net(HybridBlock):
     def __init__(self, input_nc=3, output_nc=3, ngf=64, 
                  norm_layer=InstanceNorm, n_blocks=6, gpu_ids=[]):
         super(Net, self).__init__()
@@ -241,27 +251,27 @@ class Inspiration(HybridBlock):
         # B is equal to 1 or input mini_batch
         self.C = C
         self.B = B
-        """
-        self.weight = self.params.get('weight', shape=(1,self.C,self.C),
+        
+        self.weight = self.collect_params().get('weight', shape=(1,self.C,self.C),
                                       init=mx.initializer.Uniform(),
                                       allow_deferred_init=True)
-        self.gram = self.params.get('gram', shape=(self.B,self.C,self.C),
+        self.gram = self.collect_params().get('gram', shape=(self.B,self.C,self.C),
                                     init=mx.initializer.Uniform(),
                                     allow_deferred_init=True,
                                     lr_mult=0)
-        """
+        
     def setTarget(self, target):
         #self.gram.set_data(target)
-        self.params.get('gram', shape=(self.B,self.C,self.C),
+        self.collect_params().get('gram', shape=(self.B,self.C,self.C),
                                     init=mx.initializer.Uniform(),
                                     allow_deferred_init=True,
                                     lr_mult=0).set_data(target)
     def hybrid_forward(self, F, X, C, B):
         # input X is a 3D feature map
-        weight = self.params.get('weight', shape=(1,self.C,self.C),
+        weight = self.collect_params().get('weight', shape=(1,self.C,self.C),
                                       init=mx.initializer.Uniform(),
                                       allow_deferred_init=True)
-        gram = self.params.get('gram', shape=(self.B,self.C,self.C),
+        gram = self.collect_params().get('gram', shape=(self.B,self.C,self.C),
                                     init=mx.initializer.Uniform(),
                                     allow_deferred_init=True,
                                     lr_mult=0)
