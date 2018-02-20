@@ -21,36 +21,88 @@ from mxnet import autograd, gluon
 from mxnet.gluon import nn, Block, HybridBlock, Parameter
 from mxnet.base import numeric_types
 import mxnet.ndarray as F
-
 class InstanceNorm(HybridBlock):
-    def __init__(self, axis=1, momentum=0.9, epsilon=1e-5, center=True, scale=False,
+    r"""
+    Applies instance normalization to the n-dimensional input array.
+    This operator takes an n-dimensional input array where (n>2) and normalizes
+    the input using the following formula:
+    .. math::
+      out = \frac{x - mean[data]}{ \sqrt{Var[data]} + \epsilon} * gamma + beta
+    Parameters
+    ----------
+    axis : int, default 1
+        The axis that should be normalized. This is typically the channels
+        (C) axis. For instance, after a `Conv2D` layer with `layout='NCHW'`,
+        set `axis=1` in `InstanceNorm`. If `layout='NHWC'`, then set `axis=3`.
+    epsilon: float, default 1e-5
+        Small float added to variance to avoid dividing by zero.
+    center: bool, default True
+        If True, add offset of `beta` to normalized tensor.
+        If False, `beta` is ignored.
+    scale: bool, default True
+        If True, multiply by `gamma`. If False, `gamma` is not used.
+        When the next layer is linear (also e.g. `nn.relu`),
+        this can be disabled since the scaling
+        will be done by the next layer.
+    beta_initializer: str or `Initializer`, default 'zeros'
+        Initializer for the beta weight.
+    gamma_initializer: str or `Initializer`, default 'ones'
+        Initializer for the gamma weight.
+    in_channels : int, default 0
+        Number of channels (feature maps) in input data. If not specified,
+        initialization will be deferred to the first time `forward` is called
+        and `in_channels` will be inferred from the shape of input data.
+    Inputs:
+        - **data**: input tensor with arbitrary shape.
+    Outputs:
+        - **out**: output tensor with the same shape as `data`.
+    References
+    ----------
+        `Instance Normalization: The Missing Ingredient for Fast Stylization
+        <https://arxiv.org/abs/1607.08022>`_
+    Examples
+    --------
+    >>> # Input of shape (2,1,2)
+    >>> x = mx.nd.array([[[ 1.1,  2.2]],
+    ...                 [[ 3.3,  4.4]]])
+    >>> # Instance normalization is calculated with the above formula
+    >>> layer = InstanceNorm()
+    >>> layer.initialize(ctx=mx.cpu(0))
+    >>> layer(x)
+    [[[-0.99998355  0.99998331]]
+     [[-0.99998319  0.99998361]]]
+    <NDArray 2x1x2 @cpu(0)>
+    """
+    def __init__(self, axis=1, epsilon=1e-5, center=True, scale=False,
                  beta_initializer='zeros', gamma_initializer='ones',
                  in_channels=0, **kwargs):
         super(InstanceNorm, self).__init__(**kwargs)
-        self._kwargs = {'eps': epsilon}
-        if in_channels != 0:
-            self.in_channels = in_channels
-        self.gamma = self.collect_params().get('gamma', grad_req='write' if scale else 'null',
+        self._kwargs = {'eps': epsilon, 'axis': axis}
+        self._axis = axis
+        self._epsilon = epsilon
+        self.gamma = self.params.get('gamma', grad_req='write' if scale else 'null',
                                      shape=(in_channels,), init=gamma_initializer,
                                      allow_deferred_init=True)
-        self.beta = self.collect_params().get('beta', grad_req='write' if center else 'null',
+        self.beta = self.params.get('beta', grad_req='write' if center else 'null',
                                     shape=(in_channels,), init=beta_initializer,
                                     allow_deferred_init=True)
 
-    def hybrid_forward(self, F, x):
-        return F.InstanceNorm(x, self.gamma, self.beta,
-                           name='fwd', **self._kwargs)
+    def hybrid_forward(self, F, x, gamma, beta):
+        if self._axis == 1:
+            return F.InstanceNorm(x, gamma, beta,
+                                  name='fwd', eps=self._epsilon)
+        x = x.swapaxes(1, self._axis)
+        return F.InstanceNorm(x, gamma, beta, name='fwd',
+                              eps=self._epsilon).swapaxes(1, self._axis)
 
     def __repr__(self):
         s = '{name}({content}'
-        if hasattr(self, 'in_channels'):
-            s += ', in_channels={0}'.format(self.in_channels)
+        in_channels = self.gamma.shape[0]
+        s += ', in_channels={0}'.format(in_channels)
         s += ')'
         return s.format(name=self.__class__.__name__,
                         content=', '.join(['='.join([k, v.__repr__()])
                                            for k, v in self._kwargs.items()]))
-
-
 class ReflectancePadding(HybridBlock):
     def __init__(self, pad_width=None, **kwargs):
         super(ReflectancePadding, self).__init__(**kwargs)
@@ -73,6 +125,8 @@ class Bottleneck(HybridBlock):
             self.residual_layer = nn.Conv2D(in_channels=inplanes, 
                                             channels=planes * self.expansion,
                                             kernel_size=1, strides=(stride, stride))
+        else:
+            self.residual_layer = None
         self.conv_block = nn.HybridSequential()
         with self.conv_block.name_scope():
             self.conv_block.add(norm_layer(in_channels=inplanes))
@@ -89,7 +143,7 @@ class Bottleneck(HybridBlock):
                                  channels=planes * self.expansion, 
                                  kernel_size=1))
         
-    def hybrid_forward(self, F, x,downsample, residual, conv_block):
+    def hybrid_forward(self, F, x):
         if self.downsample is not None:
             residual = self.residual_layer(x)
         else:
@@ -122,7 +176,7 @@ class UpBottleneck(HybridBlock):
                                 channels=planes * self.expansion, 
                                 kernel_size=1))
 
-    def hybrid_forward(self, F, x, residual_layer, conv_block):
+    def hybrid_forward(self, F, x):
         return  self.residual_layer(x) + self.conv_block(x)
 
 
@@ -172,7 +226,7 @@ class UpsampleConvLayer(HybridBlock):
                                 kernel_size=kernel_size, strides=(stride,stride),
                                 padding=self.reflection_padding)
 
-    def hybrid_forward(self, F, x, upsample, conv2d):
+    def hybrid_forward(self, F, x):
         if self.upsample:
             x = F.UpSampling(x, scale=self.upsample, sample_type='nearest')
         """
@@ -192,6 +246,8 @@ def gram_matrix(y):
 
 
 class GramMatrix(HybridBlock):
+    def __init__(self):
+        super(GramMatrix, self).__init__()    
     def hybrid_forward(self, F, x):
         gram = gram_matrix(x)
         return gram
@@ -237,8 +293,8 @@ class Net(HybridBlock):
         G = self.gram(F)
         self.ins.setTarget(G)
 
-    def hybrid_forward(self, input):
-        return self.model(input)
+    def hybrid_forward(self, F, x):
+        return self.model(x)
 
 
 class Inspiration(HybridBlock):
@@ -259,23 +315,12 @@ class Inspiration(HybridBlock):
                                     init=mx.initializer.Uniform(),
                                     allow_deferred_init=True,
                                     lr_mult=0)
-        
+        self.weight.initialize()
+        self.gram.initialize()
+        self.P = F.batch_dot(F.broadcast_to(self.weight.data(), shape=(self.gram.shape)), self.gram.data())
     def setTarget(self, target):
-        #self.gram.set_data(target)
-        self.collect_params().get('gram', shape=(self.B,self.C,self.C),
-                                    init=mx.initializer.Uniform(),
-                                    allow_deferred_init=True,
-                                    lr_mult=0).set_data(target)
-    def hybrid_forward(self, F, X, C, B):
-        # input X is a 3D feature map
-        weight = self.collect_params().get('weight', shape=(1,self.C,self.C),
-                                      init=mx.initializer.Uniform(),
-                                      allow_deferred_init=True)
-        gram = self.collect_params().get('gram', shape=(self.B,self.C,self.C),
-                                    init=mx.initializer.Uniform(),
-                                    allow_deferred_init=True,
-                                    lr_mult=0)
-        self.P = F.batch_dot(F.broadcast_to(weight.data(), shape=(gram.shape)), gram.data())
+        self.gram.set_data(target)
+    def hybrid_forward(self, F, X, gram, weight):
         return F.batch_dot(F.SwapAxis(self.P,1,2).broadcast_to((X.shape[0], self.C, self.C)), X.reshape((0,0,X.shape[2]*X.shape[3]))).reshape(X.shape)
 
     def __repr__(self):
