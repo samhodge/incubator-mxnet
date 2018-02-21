@@ -254,7 +254,7 @@ class GramMatrix(HybridBlock):
 
 class Net(HybridBlock):
     def __init__(self, input_nc=3, output_nc=3, ngf=64, 
-                 norm_layer=InstanceNorm, n_blocks=6, gpu_ids=[]):
+                 norm_layer=InstanceNorm, n_blocks=6, gpu_ids=[],ctx=mx.cpu(0)):
         super(Net, self).__init__()
         self.gpu_ids = gpu_ids
         self.gram = GramMatrix()
@@ -265,7 +265,7 @@ class Net(HybridBlock):
 
         with self.name_scope():
             self.model1 = nn.HybridSequential()
-            self.ins = Inspiration(ngf*expansion)
+            self.ins = Inspiration(ngf*expansion,ctx=ctx)
             self.model = nn.HybridSequential()
 
             self.model1.add(ConvLayer(input_nc, 64, kernel_size=7, stride=1))
@@ -302,7 +302,7 @@ class Inspiration(HybridBlock):
     tuning the featuremap with target Gram Matrix
     ref https://arxiv.org/abs/1703.06953
     """
-    def __init__(self, C, B=1):
+    def __init__(self, C, B=1,ctx=mx.cpu(0)):
         super(Inspiration, self).__init__()
         # B is equal to 1 or input mini_batch
         self.C = C
@@ -315,8 +315,8 @@ class Inspiration(HybridBlock):
                                     init=mx.initializer.Uniform(),
                                     allow_deferred_init=True,
                                     lr_mult=0)
-        self.weight.initialize()
-        self.gram.initialize()
+        self.weight.initialize(ctx=ctx)
+        self.gram.initialize(ctx=ctx)
         self.P = F.batch_dot(F.broadcast_to(self.weight.data(), shape=(self.gram.shape)), self.gram.data())
     def setTarget(self, target):
         self.gram.set_data(target)
