@@ -146,6 +146,11 @@ def evaluate(args):
     style_model.setTarget(style_image)
     output = style_model(content_image)
     utils.tensor_save_bgrimage(output[0], args.output_image, args.cuda)
+    x = mx.sym.var('data')
+    y = style_model(x)
+    #y_json = y.tojson()
+    y.save("MODEL.json")
+    y.save_params("MODEL.params")
 
 
 def optimize(args):
