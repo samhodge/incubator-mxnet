@@ -150,7 +150,7 @@ def evaluate(args):
     y = style_model(x)
     #y_json = y.tojson()
     y.save("MODEL.json")
-    y.save_params("MODEL.params")
+    style_model.save_params("MODEL.params")
 
 
 def optimize(args):

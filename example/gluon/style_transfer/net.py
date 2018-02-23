@@ -317,11 +317,17 @@ class Inspiration(HybridBlock):
                                     lr_mult=0)
         self.weight.initialize(ctx=ctx)
         self.gram.initialize(ctx=ctx)
-        self.P = F.batch_dot(F.broadcast_to(self.weight.data(), shape=(self.gram.shape)), self.gram.data())
+        
     def setTarget(self, target):
         self.gram.set_data(target)
     def hybrid_forward(self, F, X, gram, weight):
-        return F.batch_dot(F.SwapAxis(self.P,1,2).broadcast_to((X.shape[0], self.C, self.C)), X.reshape((0,0,X.shape[2]*X.shape[3]))).reshape(X.shape)
+        self.P = F.batch_dot(F.broadcast_to(weight, shape=(self.gram.shape)), gram)
+        if not isinstance(X,mx.symbol.Symbol):
+            return F.batch_dot(F.SwapAxis(self.P,1,2).broadcast_to((X.shape[0], self.C, self.C)), X.reshape((0,0,X.shape[2]*X.shape[3]))).reshape(X.shape)
+        else:
+            arg_shapes ,out_shapes,aux_shapes=X.infer_shape_partial()
+            print "Is this the one?", arg_shapes[1]
+            return F.batch_dot(F.SwapAxis(self.P,1,2).broadcast_to((arg_shapes[1][0], self.C, self.C)), X.reshape((0,0,arg_shapes[1][1]*arg_shapes[1][2]))).reshape(arg_shapes[1])
 
     def __repr__(self):
         return self.__class__.__name__ + '(' \
