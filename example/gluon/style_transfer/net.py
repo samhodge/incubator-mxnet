@@ -254,7 +254,7 @@ class GramMatrix(HybridBlock):
 
 class Net(HybridBlock):
     def __init__(self, input_nc=3, output_nc=3, ngf=64, 
-                 norm_layer=InstanceNorm, n_blocks=6, gpu_ids=[],ctx=mx.cpu(0)):
+                 norm_layer=InstanceNorm, n_blocks=6, gpu_ids=[],ctx=mx.cpu(0),width=1920,height=1080):
         super(Net, self).__init__()
         self.gpu_ids = gpu_ids
         self.gram = GramMatrix()
@@ -265,7 +265,7 @@ class Net(HybridBlock):
 
         with self.name_scope():
             self.model1 = nn.HybridSequential()
-            self.ins = Inspiration(ngf*expansion,ctx=ctx)
+            self.ins = Inspiration(ngf*expansion,ctx=ctx,width=width,height=height)
             self.model = nn.HybridSequential()
 
             self.model1.add(ConvLayer(input_nc, 64, kernel_size=7, stride=1))
@@ -302,7 +302,7 @@ class Inspiration(HybridBlock):
     tuning the featuremap with target Gram Matrix
     ref https://arxiv.org/abs/1703.06953
     """
-    def __init__(self, C, B=1,ctx=mx.cpu(0)):
+    def __init__(self, C, B=1,ctx=mx.cpu(0),width=1920,height=1080):
         super(Inspiration, self).__init__()
         # B is equal to 1 or input mini_batch
         self.C = C
@@ -317,6 +317,8 @@ class Inspiration(HybridBlock):
                                     lr_mult=0)
         self.weight.initialize(ctx=ctx)
         self.gram.initialize(ctx=ctx)
+        self.width=width
+        self.height=height
         
     def setTarget(self, target):
         self.gram.set_data(target)
@@ -325,7 +327,7 @@ class Inspiration(HybridBlock):
         if not isinstance(X,mx.symbol.Symbol):
             return F.batch_dot(F.SwapAxis(self.P,1,2).broadcast_to((X.shape[0], self.C, self.C)), X.reshape((0,0,X.shape[2]*X.shape[3]))).reshape(X.shape)
         else:
-            arg_shapes ,out_shapes,aux_shapes=X.infer_shape_partial(data=(1,3,1920,1080)) #1 , RGB, Width, Height, Based on 1080p resolution.
+            arg_shapes ,out_shapes,aux_shapes=X.infer_shape_partial(data=(1,3,self.width,self.height)) #1 , RGB, Width, Height, Based on 1080p resolution.
             return F.batch_dot(F.SwapAxis(self.P,1,2).broadcast_to((out_shapes[0][0], self.C, self.C)), X.reshape((0,0,out_shapes[0][2]*out_shapes[0][3]))).reshape(out_shapes[0])
 
     def __repr__(self):

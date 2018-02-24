@@ -140,7 +140,9 @@ def evaluate(args):
     style_image = utils.tensor_load_rgbimage(args.style_image, ctx, size=args.style_size)
     style_image = utils.preprocess_batch(style_image)
     # model
-    style_model = net.Net(ngf=args.ngf)
+    WIDTH = content_image.shape[2]
+    HEIGHT = content_image.shape[3]
+    style_model = net.Net(ngf=args.ngf,width=WIDTH,height=HEIGHT)
     style_model.collect_params().load(args.model, ctx=ctx)
     # forward
     style_model.setTarget(style_image)
@@ -156,6 +158,7 @@ def evaluate(args):
     style_model.save_params("MODEL.params")
     graph = mx.viz.plot_network(y,save_format='pdf')
     graph.render()
+    mx.visualization.print_summary(y,{'data':(1,3,WIDTH,HEIGHT)})
 
 
 def optimize(args):
