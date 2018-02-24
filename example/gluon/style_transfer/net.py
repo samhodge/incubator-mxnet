@@ -325,9 +325,8 @@ class Inspiration(HybridBlock):
         if not isinstance(X,mx.symbol.Symbol):
             return F.batch_dot(F.SwapAxis(self.P,1,2).broadcast_to((X.shape[0], self.C, self.C)), X.reshape((0,0,X.shape[2]*X.shape[3]))).reshape(X.shape)
         else:
-            arg_shapes ,out_shapes,aux_shapes=X.infer_shape_partial()
-            print "Is this the one?", arg_shapes[1]
-            return F.batch_dot(F.SwapAxis(self.P,1,2).broadcast_to((arg_shapes[1][0], self.C, self.C)), X.reshape((0,0,arg_shapes[1][1]*arg_shapes[1][2]))).reshape(arg_shapes[1])
+            arg_shapes ,out_shapes,aux_shapes=X.infer_shape_partial(data=(1,3,1920,1080)) #1 , RGB, Width, Height, Based on 1080p resolution.
+            return F.batch_dot(F.SwapAxis(self.P,1,2).broadcast_to((out_shapes[0][0], self.C, self.C)), X.reshape((0,0,out_shapes[0][2]*out_shapes[0][3]))).reshape(out_shapes[0])
 
     def __repr__(self):
         return self.__class__.__name__ + '(' \

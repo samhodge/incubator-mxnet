@@ -146,11 +146,16 @@ def evaluate(args):
     style_model.setTarget(style_image)
     output = style_model(content_image)
     utils.tensor_save_bgrimage(output[0], args.output_image, args.cuda)
+    #Added to save and visualise model
     x = mx.sym.var('data')
     y = style_model(x)
     #y_json = y.tojson()
     y.save("MODEL.json")
+    y_json = y.tojson()
+    #print( "Network\n%s" % y_json)
     style_model.save_params("MODEL.params")
+    graph = mx.viz.plot_network(y,save_format='pdf')
+    graph.render()
 
 
 def optimize(args):
