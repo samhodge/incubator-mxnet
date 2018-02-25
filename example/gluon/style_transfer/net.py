@@ -262,7 +262,6 @@ class Net(HybridBlock):
         block = Bottleneck
         upblock = UpBottleneck
         expansion = 4
-
         with self.name_scope():
             self.model1 = nn.HybridSequential()
             self.ins = Inspiration(ngf*expansion,ctx=ctx,width=width,height=height)
@@ -327,7 +326,15 @@ class Inspiration(HybridBlock):
         if not isinstance(X,mx.symbol.Symbol):
             return F.batch_dot(F.SwapAxis(self.P,1,2).broadcast_to((X.shape[0], self.C, self.C)), X.reshape((0,0,X.shape[2]*X.shape[3]))).reshape(X.shape)
         else:
-            arg_shapes ,out_shapes,aux_shapes=X.infer_shape_partial(data=(1,3,self.width,self.height)) #1 , RGB, Width, Height, Based on 1080p resolution.
+            width = X.slice_axis(axis=2,begin=0,end=0)
+            width = width.ones_like()
+            width = width.sum()
+            height = X.slice_axis(axis=3,begin=0,end=0)
+            height= width.ones_like()
+            height= width.sum()
+            print "width",width
+            print "height",height
+            arg_shapes ,out_shapes,aux_shapes=X.infer_shape_partial(data=(1,3,self.width,self.height)) #1 , RGB, Width, Height
             return F.batch_dot(F.SwapAxis(self.P,1,2).broadcast_to((out_shapes[0][0], self.C, self.C)), X.reshape((0,0,out_shapes[0][2]*out_shapes[0][3]))).reshape(out_shapes[0])
 
     def __repr__(self):

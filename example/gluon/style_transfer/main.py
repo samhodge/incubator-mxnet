@@ -150,6 +150,8 @@ def evaluate(args):
     utils.tensor_save_bgrimage(output[0], args.output_image, args.cuda)
     #Added to save and visualise model
     x = mx.sym.var('data')
+    a=mx.sym.var('width')
+    b=mx.sym.var('height')
     y = style_model(x)
     #y_json = y.tojson()
     y.save("MODEL.json")
